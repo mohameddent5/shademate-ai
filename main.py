@@ -1,11 +1,13 @@
-# === ShadeMate AI Real-Time VITA Match Engine ===
 
+import streamlit as st
 import numpy as np
 import cv2
 import math
 import random
+from PIL import Image
+import io
 
-# --- VITA LAB Reference Table (Simplified, Can Be Expanded) ---
+# --- VITA LAB Reference Table ---
 VITA_SHADES = {
     "A1": (75, 2, 9),
     "A2": (72, 3, 13),
@@ -22,16 +24,17 @@ VITA_SHADES = {
 def delta_e(lab1, lab2):
     return math.sqrt((lab1[0] - lab2[0])**2 + (lab1[1] - lab2[1])**2 + (lab1[2] - lab2[2])**2)
 
-# --- Real VITA Matching from Image Path ---
-def extract_lab_from_image(image_path):
-    image = cv2.imread(image_path)
-    if image is None:
-        raise ValueError("Image not found or invalid format.")
-
-    lab_image = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+# --- Extract LAB from uploaded image ---
+def extract_lab_from_uploaded_image(image_bytes):
+    # Convert PIL image to OpenCV format
+    image = Image.open(io.BytesIO(image_bytes))
+    image_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    
+    lab_image = cv2.cvtColor(image_cv, cv2.COLOR_BGR2LAB)
     h, w, _ = lab_image.shape
     cx, cy = w // 2, h // 2
-    crop_size = 100
+    crop_size = min(100, h//2, w//2)  # Adjust crop size for smaller images
+    
     cropped = lab_image[cy - crop_size // 2:cy + crop_size // 2,
                         cx - crop_size // 2:cx + crop_size // 2]
 
@@ -54,7 +57,7 @@ def match_vita_shade(lab):
 
     return closest_shade, round(min_delta, 2)
 
-# --- Generate Clinical Tips Based on Matched Shade ---
+# --- Generate Clinical Tips ---
 def generate_clinical_tips(tooth_type, restoration_type):
     tips_pool = [
         "Layer ceramics to replicate incisal translucency",
@@ -67,78 +70,130 @@ def generate_clinical_tips(tooth_type, restoration_type):
         "Observe patient under ambient lighting post-op",
         "Polish gently to maintain optical integration"
     ]
-    selected_tips = random.sample(tips_pool, 2)
-    return selected_tips
+    return random.sample(tips_pool, 2)
 
-# --- Generate Final Report Block ---
-def generate_analysis_report(image_path, tooth_type, restoration_type):
-    lab = extract_lab_from_image(image_path)
-    shade, delta = match_vita_shade(lab)
-
-    if delta <= 2:
-        quality = "🟢 Excellent Match"
-    elif delta <= 4:
-        quality = "🟡 Clinically Acceptable"
-    else:
-        quality = "🔴 Visibly Mismatched"
-
-    tips = generate_clinical_tips(tooth_type, restoration_type)
-
-    return f"""
-## 🦷 ShadeMate AI Report
-
-**📷 Extracted LAB Values**:  L* = {lab[0]} / a* = {lab[1]} / b* = {lab[2]}
-**🎯 Closest VITA Shade Match**: `{shade}`  
-**🔍 Match Confidence**: {quality} (ΔE = {delta})
-
----
-
-### ✨ Aesthetic Tips for {restoration_type} on Tooth {tooth_type}:
-1. {tips[0]}
-2. {tips[1]}
-
----
-*AI-generated shade analysis. No GPT-4. No cloud APIs. 100% edge-run logic.*
-"""
-
-# --- Main Application Entry Point ---
+# --- Streamlit App ---
 def main():
-    print("🦷 ShadeMate AI - VITA Shade Matching System")
-    print("=" * 50)
+    st.set_page_config(
+        page_title="ShadeMate AI",
+        page_icon="🦷",
+        layout="wide"
+    )
     
-    # Example demonstration with sample data
-    print("\n📋 Demo Mode: Simulating shade analysis...")
+    st.title("🦷 ShadeMate AI - VITA Shade Matching System")
+    st.markdown("*AI-powered dental shade analysis using CIELAB color space*")
     
-    # Since we don't have an actual image, let's demonstrate with sample LAB values
-    sample_lab = (72, 3, 12)  # Sample LAB values
-    shade, delta = match_vita_shade(sample_lab)
+    col1, col2 = st.columns([1, 1])
     
-    print(f"\n📊 Sample LAB Values: L*={sample_lab[0]}, a*={sample_lab[1]}, b*={sample_lab[2]}")
-    print(f"🎯 Matched VITA Shade: {shade}")
-    print(f"🔍 Delta E: {delta}")
+    with col1:
+        st.header("📷 Image Analysis")
+        
+        # File uploader
+        uploaded_file = st.file_uploader(
+            "Upload a dental image", 
+            type=['png', 'jpg', 'jpeg'],
+            help="Upload a high-quality image of the tooth for shade analysis"
+        )
+        
+        # Input fields
+        tooth_type = st.selectbox(
+            "Tooth Type",
+            ["Central Incisor", "Lateral Incisor", "Canine", "Premolar", "Molar"]
+        )
+        
+        restoration_type = st.selectbox(
+            "Restoration Type",
+            ["Crown", "Veneer", "Filling", "Bridge", "Implant"]
+        )
+        
+        if uploaded_file is not None:
+            # Display uploaded image
+            image = Image.open(uploaded_file)
+            st.image(image, caption="Uploaded Image", use_container_width=True)
+            
+            # Analyze button
+            if st.button("🔍 Analyze Shade", type="primary"):
+                with st.spinner("Analyzing shade..."):
+                    try:
+                        # Extract LAB values
+                        lab = extract_lab_from_uploaded_image(uploaded_file.getvalue())
+                        shade, delta = match_vita_shade(lab)
+                        
+                        # Store results in session state
+                        st.session_state.analysis_results = {
+                            'lab': lab,
+                            'shade': shade,
+                            'delta': delta,
+                            'tooth_type': tooth_type,
+                            'restoration_type': restoration_type
+                        }
+                        
+                    except Exception as e:
+                        st.error(f"Error analyzing image: {str(e)}")
     
-    if delta <= 2:
-        quality = "🟢 Excellent Match"
-    elif delta <= 4:
-        quality = "🟡 Clinically Acceptable"
-    else:
-        quality = "🔴 Visibly Mismatched"
+    with col2:
+        st.header("📊 Analysis Results")
+        
+        # Display results if available
+        if hasattr(st.session_state, 'analysis_results'):
+            results = st.session_state.analysis_results
+            
+            # LAB Values
+            st.subheader("🎨 Color Analysis")
+            col_l, col_a, col_b = st.columns(3)
+            with col_l:
+                st.metric("L* (Lightness)", f"{results['lab'][0]}")
+            with col_a:
+                st.metric("a* (Green-Red)", f"{results['lab'][1]}")
+            with col_b:
+                st.metric("b* (Blue-Yellow)", f"{results['lab'][2]}")
+            
+            # Shade Match
+            st.subheader("🎯 VITA Shade Match")
+            st.markdown(f"### **{results['shade']}**")
+            
+            # Match Quality
+            if results['delta'] <= 2:
+                quality = "🟢 Excellent Match"
+                quality_color = "green"
+            elif results['delta'] <= 4:
+                quality = "🟡 Clinically Acceptable"
+                quality_color = "orange"
+            else:
+                quality = "🔴 Visibly Mismatched"
+                quality_color = "red"
+            
+            st.markdown(f"**Match Quality:** {quality}")
+            st.metric("Delta E (ΔE)", f"{results['delta']}")
+            
+            # Clinical Tips
+            st.subheader("✨ Clinical Recommendations")
+            tips = generate_clinical_tips(results['tooth_type'], results['restoration_type'])
+            for i, tip in enumerate(tips, 1):
+                st.markdown(f"{i}. {tip}")
+        
+        else:
+            st.info("Upload an image and click 'Analyze Shade' to see results here.")
     
-    print(f"📈 Match Quality: {quality}")
+    # VITA Shade Reference
+    st.header("📚 VITA Shade Reference")
     
-    # Display available VITA shades
-    print(f"\n📚 Available VITA Shades in Database:")
-    for shade_name, lab_values in VITA_SHADES.items():
-        print(f"  {shade_name}: L*={lab_values[0]}, a*={lab_values[1]}, b*={lab_values[2]}")
+    # Create columns for shade display
+    cols = st.columns(len(VITA_SHADES))
+    for i, (shade_name, lab_values) in enumerate(VITA_SHADES.items()):
+        with cols[i]:
+            st.markdown(f"**{shade_name}**")
+            st.text(f"L*: {lab_values[0]}")
+            st.text(f"a*: {lab_values[1]}")
+            st.text(f"b*: {lab_values[2]}")
     
-    # Generate sample clinical tips
-    tips = generate_clinical_tips("Central Incisor", "Crown")
-    print(f"\n✨ Clinical Tips:")
-    for i, tip in enumerate(tips, 1):
-        print(f"  {i}. {tip}")
-    
-    print(f"\n💡 To analyze an actual image, use:")
-    print(f"   result = generate_analysis_report('image_path.jpg', 'tooth_type', 'restoration_type')")
+    # Demo Mode
+    st.header("🧪 Demo Mode")
+    if st.button("Run Demo Analysis"):
+        sample_lab = (72, 3, 12)
+        shade, delta = match_vita_shade(sample_lab)
+        
+        st.success(f"Demo Results: LAB({sample_lab[0]}, {sample_lab[1]}, {sample_lab[2]}) → VITA {shade} (ΔE: {delta})")
 
 if __name__ == "__main__":
     main()
