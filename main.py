@@ -1,104 +1,86 @@
-import streamlit as st
-import cv2
 import numpy as np
-import base64
-import os
-from PIL import Image
-import tempfile
+import cv2
+import math
+import random
 
-st.set_page_config(page_title="ShadeMate AI", page_icon="🦷", layout="wide")
-st.title("ShadeMate AI 🦷")
-st.markdown("**Zero-cost AI Dental Esthetics Assistant** - MVP Edition")
+# VITA LAB Reference Table
+VITA_SHADES = {
+    "A1": (75, 2, 9),
+    "A2": (72, 3, 13),
+    "A3": (69, 4, 15),
+    "B1": (78, 1, 8),
+    "B2": (74, 2, 10),
+    "C1": (73, 0, 9),
+    "C2": (70, 1, 11),
+    "D2": (71, 3, 13),
+    "D3": (68, 4, 14)
+}
 
-# ===========================
-# SECTION 1: MULTI-IMAGE UPLOAD
-# ===========================
-st.markdown("### 📸 Upload Multiple Smile Images")
-uploaded_files = st.file_uploader(
-    "Upload frontal, lateral, occlusal, and shade tab photos", 
-    type=["jpg", "jpeg", "png"], 
-    accept_multiple_files=True
-)
+def delta_e(lab1, lab2):
+    return math.sqrt((lab1[0] - lab2[0])**2 + (lab1[1] - lab2[1])**2 + (lab1[2] - lab2[2])**2)
 
-# ===========================
-# SECTION 2: CLINICAL CONTEXT
-# ===========================
-st.markdown("### 🦷 Clinical Case Context")
-tooth_number = st.selectbox("Select Target Tooth", ["11", "12", "13", "21", "22", "23", "31", "41"])
-lighting = st.radio("Lighting Used", ["Natural", "LED", "Intraoral Flash"])
-restoration_type = st.selectbox("Restoration Type", ["Crown", "Veneer", "Composite", "Implant Crown"])
+def extract_lab_from_image(image_path):
+    image = cv2.imread(image_path)
+    if image is None:
+        raise ValueError("Image not found or invalid format.")
+    lab_image = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    h, w, _ = lab_image.shape
+    cx, cy = w // 2, h // 2
+    crop_size = 100
+    cropped = lab_image[cy - crop_size // 2:cy + crop_size // 2,
+                        cx - crop_size // 2:cx + crop_size // 2]
+    L = np.mean(cropped[:, :, 0])
+    A = np.mean(cropped[:, :, 1])
+    B = np.mean(cropped[:, :, 2])
+    return round(L, 1), round(A, 1), round(B, 1)
 
-# ===========================
-# SECTION 3: IMAGE PREVIEW
-# ===========================
-if uploaded_files:
-    st.markdown("### 📷 Uploaded Image Previews")
-    cols = st.columns(min(3, len(uploaded_files)))
-    for i, file in enumerate(uploaded_files):
-        cols[i % 3].image(file, caption=file.name, use_column_width=True)
+def match_vita_shade(lab):
+    closest_shade = None
+    min_delta = float("inf")
+    for shade, ref_lab in VITA_SHADES.items():
+        de = delta_e(lab, ref_lab)
+        if de < min_delta:
+            min_delta = de
+            closest_shade = shade
+    return closest_shade, round(min_delta, 2)
 
-# ===========================
-# SECTION 4: SHADE ESTIMATION USING OPENCV (FREE)
-# ===========================
-def estimate_lab_shade(image_file):
-    file_bytes = np.asarray(bytearray(image_file.read()), dtype=np.uint8)
-    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    img_lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-    mean_lab = np.mean(img_lab.reshape(-1, 3), axis=0)
-    return tuple(map(int, mean_lab))
-
-# ===========================
-# SECTION 5: AI MOCK OUTPUT (GPT-4V SIMULATED)
-# ===========================
-def generate_ai_feedback(tooth, lighting, restoration, lab_values):
-    lab_note = f"Estimated LAB: L*={lab_values[0]}, a*={lab_values[1]}, b*={lab_values[2]}"
-    suggestions = [
-        "Use cross-polarized filters to minimize reflections",
-        "Select shade under multiple light sources",
-        "Verify shade with neighboring teeth in mind",
-        "Consider ceramic layering for natural depth",
-        "Use silicone index to record texture and contour",
-        "Document with retracted, color-calibrated images"
+def generate_clinical_tips(tooth_type, restoration_type):
+    tips_pool = [
+        "Layer ceramics to replicate incisal translucency",
+        "Mimic adjacent teeth surface texture for harmony",
+        "Use silicone index for consistent layering",
+        "Select shade under natural or cross-polarized light",
+        "Account for cervical shading in crown margins",
+        "Finish restorations with microtexture to scatter light",
+        "Choose neutral lighting to avoid chroma distortion",
+        "Observe patient under ambient lighting post-op",
+        "Polish gently to maintain optical integration"
     ]
-    chosen = np.random.choice(suggestions, size=2, replace=False)
-    region = "anterior" if tooth.startswith("1") or tooth.startswith("2") else "posterior"
+    return random.sample(tips_pool, 2)
 
-    return f"""
-### 🔮 ShadeMate AI Analysis Result
+def generate_analysis_report(image_path, tooth_type, restoration_type):
+    lab = extract_lab_from_image(image_path)
+    shade, delta = match_vita_shade(lab)
+    if delta <= 2:
+        quality = "🟢 Excellent Match"
+    elif delta <= 4:
+        quality = "🟡 Clinically Acceptable"
+    else:
+        quality = "🔴 Visibly Mismatched"
+    tips = generate_clinical_tips(tooth_type, restoration_type)
+    return f\"\"\"
+## 🦷 ShadeMate AI Report
 
-**Tooth:** {tooth} ({region} region)  
-**Lighting:** {lighting}  
-**Restoration Type:** {restoration}  
-**{lab_note}**  
+**📷 Extracted LAB Values**:  L* = {lab[0]} / a* = {lab[1]} / b* = {lab[2]}
+**🎯 Closest VITA Shade Match**: `{shade}`  
+**🔍 Match Confidence**: {quality} (ΔE = {delta})
 
-### ✨ Aesthetic Suggestions:
-1. {chosen[0]}
-2. {chosen[1]}
+---
 
-*Note: AI result is approximate. For clinical use, validate under calibrated light.*
-"""
+### ✨ Aesthetic Tips for {restoration_type} on Tooth {tooth_type}:
+1. {tips[0]}
+2. {tips[1]}
 
-# ===========================
-# SECTION 6: RUN ANALYSIS
-# ===========================
-if uploaded_files and st.button("🔍 Analyze Images"):
-    with st.spinner("Running free AI-based shade analysis..."):
-        primary_img = uploaded_files[0]  # Use first image for simplicity
-        lab = estimate_lab_shade(primary_img)
-        result = generate_ai_feedback(tooth_number, lighting, restoration_type, lab)
-
-        st.success("Analysis Complete!")
-        st.markdown(result)
-
-        st.download_button(
-            label="📄 Download Report",
-            data=result,
-            file_name=f"ShadeMate_Report_{tooth_number}.txt",
-            mime="text/plain"
-        )
-
-# ===========================
-# SECTION 7: FOOTER
-# ===========================
-st.markdown("---")
-st.markdown("Made with ❤️ by Mohamed | Powered by OpenCV + Streamlit + Science")
+---
+*AI-generated shade analysis. No GPT-4. No cloud APIs. 100% edge-run logic.*
+\"\"\"
