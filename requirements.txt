@@ -1,3 +1,4 @@
 streamlit
-pillow
-openai==0.28
+opencv-python
+numpy
+Pillow
