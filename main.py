@@ -102,4 +102,3 @@ if uploaded_files and st.button("🔍 Analyze Images"):
 # ===========================
 st.markdown("---")
 st.markdown("Made with ❤️ by Mohamed | Powered by OpenCV + Streamlit + Science")
-
