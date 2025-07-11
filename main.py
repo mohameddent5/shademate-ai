@@ -1,5 +1,6 @@
-# === ShadeMate AI Real-Time VITA Match Engine ===
-
+# === ShadeMate AI ===
+# Built by Mohamed Abushamia 🦷
+# A free real-time VITA shade analyzer designed for dentists, with clinical insight and aesthetic tips
 import numpy as np
 import cv2
 import math
@@ -142,4 +143,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
